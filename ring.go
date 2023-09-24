@@ -33,6 +33,12 @@ func (r *Ring[T]) Items() []T {
 
 	s := make([]T, len(r.items))
 
+	if len(r.items) == 0 {
+		return []T{}
+	} else if len(r.items) == 1 {
+		return []T{r.items[0]}
+	}
+
 	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
         s[i], s[j] = r.items[j], r.items[i]
     }
