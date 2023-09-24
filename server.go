@@ -18,7 +18,6 @@ func AddMsg(msg *Message) bool {
 	if msg == nil {
 		return false
 	}
-	msg.Author = strings.TrimSpace(msg.Author)
 	msg.Content = strings.TrimSpace(msg.Content)
 	
 	if len(msg.Author) < 7 || len(msg.Content) == 0 {
