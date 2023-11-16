@@ -89,8 +89,6 @@ func (s *WSServer) Pinger() {
 		case <- s.closePinger:
 			return
 		case <- t.C:
-			log.Debug("Ping Loop")
-
 			s.Lock()
 			for _, c := range s.Clients {
 				go c.Ping()
@@ -108,8 +106,6 @@ func (s *WSServer) Cleaner() {
 		case <- s.closeCleaner:
 			return
 		case <- t.C:
-			log.Debug("Close Loop")
-
 			s.Lock()
 			newL := &sync.Mutex{}
 			newConns := []*Conn{}
