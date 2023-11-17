@@ -37,6 +37,13 @@ func init() {
 }
 
 func init() {
+	db.items = LoadOldStorage()
+	if len(db.items) != 0 {
+		log.Success("Loaded %d messages", len(db.items))
+	}
+}
+
+func init() {
 	InitStorage()
 }
 
