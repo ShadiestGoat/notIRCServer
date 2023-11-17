@@ -36,6 +36,10 @@ func init() {
 	log.Init(log.NewLoggerPrint(), log.NewLoggerFile("logs/log"))
 }
 
+func init() {
+	InitStorage()
+}
+
 func main() {
 	log.Success("Starting on port %s", PORT)
 
@@ -108,6 +112,7 @@ func main() {
 		log.Error("Bad stuff - server dead")
 	}
 
+	storageFile.Close()
 	log.PrintWarn("Closing...")
 	ws.CloseConns("Server Shutdown")
 	log.Success("Closed!")
