@@ -2,105 +2,114 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
+	"flag"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
 	"github.com/shadiestgoat/log"
+	"github.com/shadiestgoat/notIRCServer/db"
+	"github.com/shadiestgoat/notIRCServer/users"
+	"github.com/shadiestgoat/notIRCServer/ws"
+	"github.com/shadiestgoat/stopper"
 )
 
 var wsUp = &websocket.Upgrader{
-	HandshakeTimeout: 5 * time.Second,
-	ReadBufferSize:   2048,
-	WriteBufferSize:  2048,
-	Error: nil,
-	CheckOrigin: nil,
+	HandshakeTimeout:  5 * time.Second,
+	ReadBufferSize:    2048,
+	WriteBufferSize:   2048,
+	Error:             nil,
+	CheckOrigin:       nil,
 	EnableCompression: true,
 }
 
-var PORT = "3000"
+var (
+	PORT      = "3000"
+	RING_SIZE = 700
+)
 
 func init() {
 	godotenv.Load()
-	if v, ok := os.LookupEnv("PORT"); ok {
+
+	log.Init(log.NewLoggerPrint(), log.NewLoggerFile("logs/log"))
+
+	if v := os.Getenv("PORT"); v != "" {
 		PORT = v
 	}
-}
+	maxMsgs := os.Getenv("RING_SIZE")
 
-func init() {
-	log.Init(log.NewLoggerPrint(), log.NewLoggerFile("logs/log"))
-}
+	if maxMsgs != "" {
+		size, err := strconv.ParseUint(maxMsgs, 10, 64)
+		log.FatalIfErr(err, "parsing RING_SIZE")
 
-func init() {
-	db.items = LoadOldStorage()
-	if len(db.items) != 0 {
-		log.Success("Loaded %d messages", len(db.items))
+		if size == 0 {
+			log.Warn("Parsed RING_SIZE, but it's 0. Using default value...")
+		} else {
+			RING_SIZE = int(size)
+		}
 	}
 }
 
+var cmds []string
+
 func init() {
-	InitStorage()
+	for _, c := range os.Args[1:] {
+		if c[0] == '-' {
+			continue
+		}
+
+		cmds = append(cmds, c)
+	}
+
+	if len(cmds) == 0 {
+		cmds = []string{"exec"}
+	}
 }
 
 func main() {
+	flag.Parse()
+
+	users.Init(*userEnv, cmds[0] != "exec" || os.Getenv("I_KNOW_WHAT_IM_DOING") == "NO_TOKENS")
+
+	stop := stopper.NewSender(func(closerName string) {
+		log.Debug("Service '%v' stopped", closerName)
+	}, true)
+
+	dbStop := stop.Register("db")
+
+	switch cmds[0] {
+	case "export":
+		db.Init(*dbFile, -1, dbStop)
+		cmdExport()
+
+		stop.Stop()
+		db.Stop()
+		return
+	case "import":
+		log.Fatal("Sorry - not implemented right now. Wait for future release...")
+		return
+	}
+
+	db.Init(*dbFile, RING_SIZE, dbStop)
+
 	log.Success("Starting on port %s", PORT)
 
-	r := chi.NewRouter()
-
-	r.Get("/messages", func(w http.ResponseWriter, r *http.Request) {
-		b, err := json.Marshal(db.Items())
-
-		if log.ErrorIfErr(err, "messages get marshal") {
-			w.WriteHeader(500)
-			w.Write(nil)
-			return
-		}
-		
-		w.Write(b)
-	})
-
-	r.Post(`/messages`, func(w http.ResponseWriter, r *http.Request) {
-		msg := &Message{}
-		defer w.Write(nil)
-
-		err := json.NewDecoder(r.Body).Decode(msg)
-		if err != nil {
-			w.WriteHeader(400)
-			return
-		}
-		
-		out := AddMsg(msg)
-
-		if !out {
-			w.WriteHeader(400)
-			return
-		}
-	})
-
-	r.HandleFunc(`/ws`, func(w http.ResponseWriter, r *http.Request) {
-		conn, err := wsUp.Upgrade(w, r, nil)
-		if log.ErrorIfErr(err, "upgrading ws") {
-			return
-		}
-
-		ws.AddConn(conn)
-	})
-
 	s := &http.Server{
-		Addr: ":" + PORT,
-		Handler: r,
+		Addr:    ":" + PORT,
+		Handler: Router(),
 	}
 
 	var errClose = make(chan bool)
 
-	go func ()  {
+	go func() {
 		err := s.ListenAndServe()
-		if log.ErrorIfErr(err, "loading listen") {
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Error("Server-ending err: %v", err)
 			errClose <- true
 		}
 	}()
@@ -110,17 +119,22 @@ func main() {
 	signal.Notify(endApp, os.Interrupt)
 
 	select {
-	case <- endApp:
-		ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+	case <-endApp:
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err := s.Shutdown(ctx)
 		log.ErrorIfErr(err, "closing http server")
 		cancel()
-	case <- errClose:
+	case <-errClose:
 		log.Error("Bad stuff - server dead")
 	}
 
-	storageFile.Close()
-	log.PrintWarn("Closing...")
-	ws.CloseConns("Server Shutdown")
+	log.Warn("Closing...")
+	ws.Stop()
+	log.Debug("Closed ws conns")
+	stop.Stop()
+	log.Debug("finished routine stops")
+	db.Stop()
+	log.Debug("finished closing db")
+
 	log.Success("Closed!")
 }

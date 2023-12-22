@@ -1,3 +1,9 @@
 notIRCServer
 notIRCServer.exe
 messages.log
+db.shitdb
+users.yaml
+.env
+dev.env
+prod.env
+logs

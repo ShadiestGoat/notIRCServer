@@ -1,0 +1,30 @@
+full_admin: &admin
+  color: "#3D3D92"
+  perms:
+    - delete
+  readWhispers:
+    - "*"
+  token: env:ADMIN_TOKEN
+full_admin_2:
+  <<: *admin
+  color: "#A6474A"
+user_1:
+  color: "#ffffff"
+  writeWhispers: []
+  token: "abc"
+reader_only:
+  color: "#aaa"
+  perms: &reader_perms
+    - write
+  readWhispers:
+    - "*"
+    - full_admin
+  token: "abc"
+full_reader:
+  color: "#bbb"
+  perms: *reader_perms
+  readWhispers:
+    - "*"
+  token: "abc"
+def_user:
+  token: "abc"
